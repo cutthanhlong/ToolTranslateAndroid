@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>String Translation Tool</title>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        table, th, td {
+            border: 1px solid black;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+        }
+        #resultTable {
+            margin-top: 20px;
+        }
+        #downloadButton {
+            display: none;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script>
+        const supportedLanguages = [
+            { id: '简体中文', value: 'zh-CN' },
+            { id: '繁體中文', value: 'zh-TW' },
+            { id: 'हिन्दी', value: 'hi' },
+            { id: 'English', value: 'en' },
+            { id: 'Español', value: 'es' },
+            { id: 'Portuguese (Brazil)', value: 'pt-BR' },
+            { id: 'Portuguese (Portugal)', value: 'pt-PT' },
+            { id: 'Français', value: 'fr' },
+            { id: 'বাংলা', value: 'bn' },
+            { id: 'Русский', value: 'ru' },
+            { id: 'Deutsch', value: 'de' },
+            { id: '日本語', value: 'ja' },
+            { id: 'Türkçe', value: 'tr' },
+            { id: '한국인', value: 'ko' },
+            { id: 'Bahasa Indonesia"', value: 'id' }
+        ];
+        const folderLanguages = supportedLanguages.map(lang => ({
+            id: lang.id,
+            value: `values-${lang.value === 'id' ? 'in' : (lang.value.includes('-') ? 'r' + lang.value : lang.value)}`
+        }));
+
+        async function translateText(targetLang, sourceText) {
+            try {
+                const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${targetLang}&dt=t&q=${encodeURIComponent(sourceText)}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Translation failed');
+                const result = await response.json();
+                return result[0][0][0] || sourceText;
+            } catch (error) {
+                console.error('Translation error:', error);
+                return sourceText;
+            }
+        }
+
+        async function translateAndGenerateFiles() {
+            document.getElementById('loadingSpinner').style.display = 'block';
+            const sourceText = document.getElementById('sourceText').value;
+            const lines = sourceText.split('\n');
+            const selectedLanguages = Array.from(document.querySelectorAll('input[type="checkbox"]:checked'))
+                .map(checkbox => supportedLanguages.find(lang => lang.id === checkbox.id));
+            const resultTable = document.getElementById('resultTable');
+            resultTable.innerHTML = '';
+            const zip = new JSZip();
+            
+            await Promise.all(selectedLanguages.map(async (language) => {
+                const translatedLines = await Promise.all(lines.map(async (line) => {
+                    const match = line.match(/<string name="(.+?)">(.+)<\/string>/);
+                    if (match) {
+                        const translatedText = await translateText(language.value, match[2]);
+                        return `<string name="${match[1]}">${translatedText.replace(/'/g, "’")}</string>`;
+                    }
+                    return line;
+                }));
+
+                const fileContent = `<?xml version="1.0" encoding="utf-8"?>\n<resources>\n${translatedLines.join('\n')}\n</resources>`;
+                const folderName = folderLanguages.find(lang => lang.id === language.id).value;
+                zip.file(`${folderName}/strings.xml`, fileContent);
+                appendResultRow(language.id, fileContent);
+            }));
+
+            document.getElementById('downloadButton').style.display = 'block';
+            document.getElementById('downloadButton').onclick = () => downloadZip(zip);
+            document.getElementById('loadingSpinner').style.display = 'none';
+        }
+
+        function appendResultRow(language, content) {
+            const row = document.createElement('tr');
+            const langCell = document.createElement('td');
+            langCell.textContent = language;
+            const copyButton = document.createElement('button');
+            copyButton.textContent = 'Copy';
+            copyButton.onclick = () => {
+                navigator.clipboard.writeText(content);
+                alert('Copied to clipboard!');
+            };
+            langCell.appendChild(copyButton);
+            row.appendChild(langCell);
+            
+            const translationCell = document.createElement('td');
+            translationCell.textContent = content;
+            row.appendChild(translationCell);
+            
+            document.getElementById('resultTable').appendChild(row);
+        }
+
+        function downloadZip(zip) {
+            zip.generateAsync({ type: 'blob' }).then(content => {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(content);
+                a.download = 'translations.zip';
+                a.click();
+            });
+        }
+    </script>
+</head>
+<body>
+    <h1>String Translation Tool</h1>
+    <textarea id="sourceText" placeholder="Enter strings to translate" rows="10" cols="50">
+        <string name="may_be_later">Not now</string>
+        <string name="thank_u">Thank you!</string>
+        <string name="rate">Rate</string>
+    </textarea>
+    <h3>Select languages to translate to:</h3>
+    <div id="languageCheckboxes"></div>
+    <button onclick="translateAndGenerateFiles()">Translate</button>
+    <div id="loadingSpinner" style="display: none;">Loading... Please wait</div>
+    <button id="downloadButton">Download ZIP</button>
+    <table id="resultTable"></table>
+    <script>
+        const languageCheckboxesContainer = document.getElementById('languageCheckboxes');
+        supportedLanguages.forEach(lang => {
+            const label = document.createElement('label');
+            label.innerHTML = `<input type="checkbox" id="${lang.id}" value="${lang.value}"> ${lang.id}<br>`;
+            languageCheckboxesContainer.appendChild(label);
+        });
+    </script>
+</body>
+</html>
